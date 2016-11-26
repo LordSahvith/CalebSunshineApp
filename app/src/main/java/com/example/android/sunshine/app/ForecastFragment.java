@@ -1,8 +1,11 @@
 package com.example.android.sunshine.app;
 
+import android.content.Intent;
+import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.preference.PreferenceManager;
 import android.support.v4.app.Fragment;
 import android.text.format.Time;
 import android.util.Log;
@@ -12,6 +15,7 @@ import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.ListView;
 
@@ -59,8 +63,7 @@ public class ForecastFragment extends Fragment {
         // as you specify a parent activity in AndroidManifest.xml.
         int id = item.getItemId();
         if (id == R.id.action_refresh) {
-            FetchWeatherTask weatherTask = new FetchWeatherTask();
-            weatherTask.execute("84123");
+           updateWeather();
             return true;
         }
         return super.onOptionsItemSelected(item);
@@ -94,11 +97,38 @@ public class ForecastFragment extends Fragment {
         View rootView = inflater.inflate(R.layout.fragment_main, container, false);
 
         // Get a reference to the ListView, and attach this adapter to it.
-        ListView listView = (ListView) rootView.findViewById(R.id.listview_forecast);
+        final ListView listView = (ListView) rootView.findViewById(R.id.listview_forecast);
         listView.setAdapter(mForecastAdapter);
+
+        //add listener and toast
+        listView.setOnItemClickListener(new AdapterView.OnItemClickListener(){
+            public void onItemClick(AdapterView<?> adapterview, View view, int position, long l) {
+                String forecast = mForecastAdapter.getItem(position);
+                //                content       text           time
+                //Toast.makeText(getActivity(), forecast, Toast.LENGTH_SHORT).show();
+                // launch detail activity
+                Intent intent = new Intent(getActivity(), DetailActivity.class)
+                        .putExtra(Intent.EXTRA_TEXT, forecast);
+                startActivity(intent);
+            }
+        });
 
         return rootView;
     }// end of onCreateView()
+
+    private void updateWeather() {
+        FetchWeatherTask weatherTask = new FetchWeatherTask();
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getActivity());
+        String location = prefs.getString(getString(R.string.pref_location_key),
+                getString(R.string.pref_location_default));
+        weatherTask.execute(location);
+    }
+
+    @Override
+    public void onStart() {
+        super.onStart();
+        updateWeather();
+    }
 
     public class FetchWeatherTask extends AsyncTask<String, Void, String[]> {
 
@@ -119,13 +149,15 @@ public class ForecastFragment extends Fragment {
             String format = "json";
             String units = "metric";
             int numDays = 7;
+            String Country="us";
 
             try {
 
                 // Construct the URL for teh OpenWeatherMap query
                 // Constant variables to build uri
                 final String FORECAST_BASE_URL = "http://api.openweathermap.org/data/2.5/forecast/daily?";
-                final String QUERY_PARAM = "q";
+                final String QUERY_PARAM = "zip";
+                final String COUNTRY_PARAM = "country";
                 final String FORMAT_PARAM = "mode";
                 final String UNITS_PARAM = "units";
                 final String DAYS_PARAM = "cnt";
@@ -134,6 +166,7 @@ public class ForecastFragment extends Fragment {
                 // BUILD uri object
                 Uri builtUri = Uri.parse(FORECAST_BASE_URL).buildUpon()
                         .appendQueryParameter(QUERY_PARAM, params[0])
+                        .appendQueryParameter(COUNTRY_PARAM, Country)
                         .appendQueryParameter(FORMAT_PARAM, format)
                         .appendQueryParameter(UNITS_PARAM, units)
                         .appendQueryParameter(DAYS_PARAM, Integer.toString(numDays))
@@ -247,6 +280,11 @@ public class ForecastFragment extends Fragment {
             // now we work exclusively in UTC
             daytime = new Time();
 
+            SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(getActivity());
+            String unitType = sharedPreferences.getString(
+                    getString(R.string.pref_units_key),
+                    getString(R.string.pref_units_metric));
+
             String[] resultStrs = new String[numDays];
             for (int i = 0; i < weatherArray.length(); i++){
                 // for now, using the format "Day, description, hi/low"
@@ -277,7 +315,7 @@ public class ForecastFragment extends Fragment {
                 double high = temperatureObject.getDouble(OWM_MAX);
                 double low = temperatureObject.getDouble(OWM_MIN);
 
-                highAndLow = formatHighLows(high, low);
+                highAndLow = formatHighLows(high, low, unitType);
                 resultStrs[i] = day + " - " + description + " - " + highAndLow;
             }
 
@@ -297,12 +335,18 @@ public class ForecastFragment extends Fragment {
         /**
          * prepare the weather high/lows for presentation
          */
-        private String formatHighLows(double high, double low) {
-            double highFahrenheit = (((9 / 5) * high) + 32);
-            double lowFahrenheit = (((9 / 5) * low) + 32);
+        private String formatHighLows(double high, double low, String unitType) {
+
+            if (unitType.equals(getString(R.string.pref_units_imperial))) {
+                high = (high * 1.8) + 32;
+                low = (low * 1.8) + 32;
+            } else if (!unitType.equals(getString(R.string.pref_units_metric))){
+                Log.d(LOG_TAG, "Unit type not found: " + unitType);
+            }
+
             // for presentation, assume the user doesn't care about tenths of a degree
-            long roundedHigh = Math.round(highFahrenheit);
-            long roundedLow = Math.round(lowFahrenheit);
+            long roundedHigh = Math.round(high);
+            long roundedLow = Math.round(low);
 
             String highLowStr = roundedHigh + "/" + roundedLow;
             return  highLowStr;
